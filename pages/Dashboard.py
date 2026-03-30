@@ -6,7 +6,7 @@ import requests
 import logging
 import re
 from datetime import datetime, timedelta
-from database import init_db, save_trade, load_trades
+from database import init_db, save_trade
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -139,6 +139,18 @@ def check_and_alert(ticker, signal, price, bot_token, chat_id):
 
 st.title("📈 Trading Dashboard")
 st.markdown("Real-time analysis with volatility gauge, signal detection, and trade logging.")
+
+if not st.session_state.get("authenticated") or not st.session_state.get("user_id"):
+    st.warning("Please log in on the Home page to access the dashboard.")
+    st.stop()
+
+current_user_id = int(st.session_state["user_id"])
+
+try:
+    init_db()
+except Exception as exc:
+    st.error(f"Database initialization failed: {exc}")
+    st.stop()
 
 # Get settings from session state (set by Home.py)
 ticker = st.session_state.get('ticker', 'SPY')
@@ -415,9 +427,6 @@ elif ticker.upper() not in st.session_state.favorites:
 elif not bot_token or not chat_id:
     st.warning("⚠️ Telegram bot not configured. Set up your bot in the Home page sidebar to enable notifications.")
 
-# Trade History Log
-init_db()
-
 st.subheader("Step 5: Trade History Log")
 
 # Manual Trade Input Section
@@ -455,7 +464,8 @@ if st.button("✅ Confirm & Log Trade", key="log_trade_btn"):
         signal=manual_signal,
         entry_price=manual_price,
         volume=manual_volume,
-        capital_at_risk=capital_at_risk
+        capital_at_risk=capital_at_risk,
+        user_id=current_user_id,
     )
     
     if trade_id:

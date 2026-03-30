@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from database import load_trades, export_trades_csv, get_trade_count, delete_trade, save_trade
+from database import init_db, load_trades, export_trades_csv, get_trade_count, delete_trade, save_trade
 
 st.set_page_config(
     page_title="Trade History",
@@ -13,15 +13,27 @@ st.set_page_config(
 st.title("📜 Trade History")
 st.markdown("Comprehensive view of all logged trades with export functionality.")
 
+if not st.session_state.get("authenticated") or not st.session_state.get("user_id"):
+    st.warning("Please log in on the Home page to access trade history.")
+    st.stop()
+
+current_user_id = int(st.session_state["user_id"])
+
+try:
+    init_db()
+except Exception as exc:
+    st.error(f"Database initialization failed: {exc}")
+    st.stop()
+
 # --- TRADE COUNT METRICS ---
-trade_count = get_trade_count()
+trade_count = get_trade_count(current_user_id)
 
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Total Trades", trade_count)
 
 # Load trade history from database
-trades_df = load_trades()
+trades_df = load_trades(current_user_id)
 
 if not trades_df.empty:
     # Calculate additional metrics
@@ -113,7 +125,7 @@ if not trades_df.empty:
         if st.button("📥 Export All Trades to CSV", key="export_all"):
             filename = f"trades_backup_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv"
             try:
-                export_trades_csv(filename)
+                export_trades_csv(filename, user_id=current_user_id)
                 st.success(f"✅ Exported all {trade_count} trades to `{filename}`")
                 
                 # Provide download button
@@ -176,7 +188,8 @@ if not trades_df.empty:
                                         signal=str(row['signal']).upper(),
                                         entry_price=float(row['entry_price']),
                                         volume=float(row['volume']),
-                                        capital_at_risk=float(row['capital_at_risk'])
+                                        capital_at_risk=float(row['capital_at_risk']),
+                                        user_id=current_user_id,
                                     )
                                     if trade_id:
                                         successful_imports += 1
@@ -219,7 +232,7 @@ if not trades_df.empty:
             st.write("")  # Spacer
             if st.button("🗑️ Delete Trade", key="delete_btn", type="secondary"):
                 try:
-                    delete_trade(trade_id_to_delete)
+                    delete_trade(trade_id_to_delete, user_id=current_user_id)
                     st.success(f"✅ Trade #{trade_id_to_delete} deleted successfully!")
                     st.rerun()  # Refresh the page to show updated data
                 except Exception as e:

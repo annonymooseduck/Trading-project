@@ -1,5 +1,6 @@
 import streamlit as st
 import re
+from database import init_db, register_user, authenticate_user
 
 st.set_page_config(
     page_title="Trading Assistant - Home",
@@ -11,7 +12,62 @@ st.set_page_config(
 st.title("Systematic Trading Assistant")
 st.markdown("The Behavioral Firewall for Novice Investors")
 
+try:
+    init_db()
+except Exception as exc:
+    st.error(f"Database initialization failed: {exc}")
+    st.info("Set DATABASE_URL in Streamlit secrets to your Postgres connection string.")
+    st.stop()
+
 with st.sidebar:
+    st.header("🔐 Account")
+
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        st.success(f"Logged in as {st.session_state.get('username', 'user')}")
+        if st.button("Log Out", key="logout_btn", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.user_id = None
+            st.session_state.username = None
+            st.rerun()
+    else:
+        auth_tab_login, auth_tab_register = st.tabs(["Log In", "Register"])
+
+        with auth_tab_login:
+            login_username = st.text_input("Username", key="login_username")
+            login_password = st.text_input("Password", type="password", key="login_password")
+            if st.button("Log In", key="login_btn", use_container_width=True):
+                user = authenticate_user(login_username, login_password)
+                if user:
+                    st.session_state.authenticated = True
+                    st.session_state.user_id = user["id"]
+                    st.session_state.username = user["username"]
+                    st.success("Login successful")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
+
+        with auth_tab_register:
+            reg_username = st.text_input("New Username", key="register_username")
+            reg_password = st.text_input("New Password", type="password", key="register_password")
+            reg_password_confirm = st.text_input("Confirm Password", type="password", key="register_password_confirm")
+            if st.button("Create Account", key="register_btn", use_container_width=True):
+                if reg_password != reg_password_confirm:
+                    st.error("Passwords do not match")
+                else:
+                    ok, msg = register_user(reg_username, reg_password)
+                    if ok:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+
+        st.info("Please log in to access your dashboard and trade history.")
+        st.stop()
+
+    st.divider()
+
     st.header("⚙️ Global Settings")
     
     ticker = st.text_input(
@@ -51,7 +107,7 @@ with st.sidebar:
     if database_url:
         st.caption("Database: managed Postgres configured")
     else:
-        st.warning("Database fallback active: no DATABASE_URL in secrets. App will use local SQLite.")
+        st.error("DATABASE_URL is missing. Configure Postgres in Streamlit secrets.")
     
     st.divider()
     
