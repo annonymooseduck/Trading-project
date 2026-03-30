@@ -27,7 +27,7 @@ if not trades_df.empty:
     # Calculate additional metrics
     buy_count = len(trades_df[trades_df['signal'] == 'BUY'])
     sell_count = len(trades_df[trades_df['signal'] == 'SELL'])
-    total_capital_at_risk = trades_df['capital_at_risk'].str.replace('$', '').str.replace(',', '').astype(float).sum()
+    total_capital_at_risk = pd.to_numeric(trades_df['capital_at_risk'], errors='coerce').fillna(0).sum()
     
     with col2:
         st.metric("BUY Signals", buy_count)
@@ -71,18 +71,17 @@ if not trades_df.empty:
     elif selected_sort == 'Date (Oldest First)':
         filtered_df = filtered_df.sort_values('date', ascending=True)
     elif selected_sort == 'Entry Price (High to Low)':
-        # Remove $ and , for sorting
-        filtered_df['_sort_price'] = filtered_df['entry_price'].str.replace('$', '').str.replace(',', '').astype(float)
-        filtered_df = filtered_df.sort_values('_sort_price', ascending=False)
-        filtered_df = filtered_df.drop('_sort_price', axis=1)
+        filtered_df = filtered_df.sort_values('entry_price', ascending=False)
     elif selected_sort == 'Entry Price (Low to High)':
-        filtered_df['_sort_price'] = filtered_df['entry_price'].str.replace('$', '').str.replace(',', '').astype(float)
-        filtered_df = filtered_df.sort_values('_sort_price', ascending=True)
-        filtered_df = filtered_df.drop('_sort_price', axis=1)
+        filtered_df = filtered_df.sort_values('entry_price', ascending=True)
     
     # --- TRADE HISTORY TABLE ---
     st.subheader("📊 Trade Records")
-    st.dataframe(filtered_df, use_container_width=True, height=400)
+    display_df = filtered_df.copy()
+    display_df['entry_price'] = pd.to_numeric(display_df['entry_price'], errors='coerce').map(lambda x: f"${x:,.2f}" if pd.notna(x) else "-")
+    display_df['capital_at_risk'] = pd.to_numeric(display_df['capital_at_risk'], errors='coerce').map(lambda x: f"${x:,.2f}" if pd.notna(x) else "-")
+    display_df['volume'] = pd.to_numeric(display_df['volume'], errors='coerce').map(lambda x: f"{x:,.2f}" if pd.notna(x) else "-")
+    st.dataframe(display_df, use_container_width=True, height=400)
     
     # --- EXPORT SECTION ---
     st.subheader("💾 Export Data")

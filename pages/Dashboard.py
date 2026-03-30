@@ -3,8 +3,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 import requests
+import logging
+import re
 from datetime import datetime, timedelta
 from database import init_db, save_trade, load_trades
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 st.set_page_config(
     page_title="Trading Dashboard",
@@ -105,8 +110,8 @@ def send_telegram_alert(bot_token, chat_id, message):
         }
         response = requests.post(url, json=payload, timeout=10)
         return response.status_code == 200
-    except Exception as e:
-        print(f"Telegram error: {e}")
+    except Exception:
+        logger.exception("Telegram alert failed")
         return False
 
 def check_and_alert(ticker, signal, price, bot_token, chat_id):
@@ -181,10 +186,19 @@ if not ticker or ticker.strip() == "":
     st.error("⚠️ Please enter a valid ticker symbol in the Home page sidebar!")
     st.stop()
 
+clean_ticker = ticker.strip().upper()
+if not re.fullmatch(r"[A-Z0-9.-]{1,10}", clean_ticker):
+    st.error("⚠️ Invalid ticker format. Use letters/numbers with optional '.' or '-' (max 10 chars).")
+    st.stop()
+
+if capital <= 0 or max_risk_pct <= 0:
+    st.error("⚠️ Capital and risk percentage must both be greater than zero.")
+    st.stop()
+
 st.subheader("Data & Calculations")
 
 try:
-    df = get_market_data(ticker.strip().upper())
+    df = get_market_data(clean_ticker)
     
     # Check for insufficient data before calculations
     if len(df) < 200:
@@ -204,7 +218,7 @@ try:
     
     df = df_valid
     
-except ValueError as e:
+except ValueError:
     st.error(f"❌ Invalid ticker '{ticker}': No data found")
     st.info("💡 Please check the ticker symbol and try again")
     st.stop()
@@ -424,11 +438,20 @@ with col4:
 
 # Confirm & Log Trade button
 if st.button("✅ Confirm & Log Trade", key="log_trade_btn"):
+    manual_ticker_clean = manual_ticker.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.-]{1,10}", manual_ticker_clean):
+        st.error("❌ Invalid manual ticker format.")
+        st.stop()
+
+    if manual_price <= 0 or manual_volume <= 0:
+        st.error("❌ Entry price and volume must both be greater than zero.")
+        st.stop()
+
     capital_at_risk = manual_price * manual_volume
     
     trade_id = save_trade(
         date=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-        ticker=manual_ticker.upper(),
+        ticker=manual_ticker_clean,
         signal=manual_signal,
         entry_price=manual_price,
         volume=manual_volume,

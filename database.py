@@ -1,125 +1,239 @@
-"""
-Database Module: SQLite Trade History Persistence
+"""Database operations for trade persistence with Postgres-first configuration."""
 
-Handles all database operations for the Trading Assistant.
-Stores trade records in a local SQLite database for persistence across sessions.
-"""
-
-import sqlite3
-import pandas as pd
+import logging
+import os
+from functools import lru_cache
 from pathlib import Path
 
-# Database file location
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 DB_PATH = Path(__file__).parent / "trades.db"
 
+
+def _get_database_url():
+    """Get DATABASE_URL from environment or Streamlit secrets, with SQLite fallback."""
+    env_url = os.getenv("DATABASE_URL")
+    if env_url:
+        return env_url
+
+    try:
+        import streamlit as st
+
+        return st.secrets.get("DATABASE_URL", st.secrets.get("database_url", ""))
+    except Exception:
+        return ""
+
+
+def _normalize_database_url(database_url):
+    """Normalize URL for SQLAlchemy and psycopg compatibility."""
+    if not database_url:
+        return f"sqlite:///{DB_PATH}"
+
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+    return database_url
+
+
+@lru_cache(maxsize=1)
+def _get_engine():
+    db_url = _normalize_database_url(_get_database_url())
+    logger.info("Using database backend: %s", "Postgres" if "postgresql" in db_url else "SQLite")
+    return create_engine(db_url, pool_pre_ping=True)
+
+
+def _log_audit(conn, action, trade_id=None, details=""):
+    conn.execute(
+        text(
+            """
+            INSERT INTO audit_log (action, trade_id, details)
+            VALUES (:action, :trade_id, :details)
+            """
+        ),
+        {"action": action, "trade_id": trade_id, "details": details},
+    )
+
+
 def init_db():
-    """Initialize the SQLite database and trades table."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            ticker TEXT NOT NULL,
-            signal TEXT NOT NULL,
-            entry_price REAL NOT NULL,
-            volume REAL NOT NULL,
-            capital_at_risk REAL NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-    print("✓ Database initialized successfully")
+    """Initialize required tables in the configured database."""
+    try:
+        engine = _get_engine()
+        with engine.begin() as conn:
+            dialect = conn.engine.dialect.name
+
+            if dialect == "postgresql":
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS trades (
+                            id SERIAL PRIMARY KEY,
+                            date TEXT NOT NULL,
+                            ticker VARCHAR(16) NOT NULL,
+                            signal VARCHAR(8) NOT NULL,
+                            entry_price DOUBLE PRECISION NOT NULL,
+                            volume DOUBLE PRECISION NOT NULL,
+                            capital_at_risk DOUBLE PRECISION NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS audit_log (
+                            id SERIAL PRIMARY KEY,
+                            action VARCHAR(64) NOT NULL,
+                            trade_id INTEGER,
+                            details TEXT,
+                            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS trades (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            date TEXT NOT NULL,
+                            ticker TEXT NOT NULL,
+                            signal TEXT NOT NULL,
+                            entry_price REAL NOT NULL,
+                            volume REAL NOT NULL,
+                            capital_at_risk REAL NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS audit_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            action TEXT NOT NULL,
+                            trade_id INTEGER,
+                            details TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+    except Exception:
+        logger.exception("Failed to initialize database")
+
 
 def save_trade(date, ticker, signal, entry_price, volume, capital_at_risk):
-    """Insert a trade record into the database."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
+    """Insert a trade record and return its ID."""
     try:
-        cursor.execute("""
-            INSERT INTO trades (date, ticker, signal, entry_price, volume, capital_at_risk)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (date, ticker.upper(), signal, entry_price, volume, capital_at_risk))
-        
-        conn.commit()
-        trade_id = cursor.lastrowid
-        return trade_id
-    
-    except Exception as e:
-        print(f"Error saving trade: {e}")
+        engine = _get_engine()
+        with engine.begin() as conn:
+            dialect = conn.engine.dialect.name
+            if dialect == "postgresql":
+                result = conn.execute(
+                    text(
+                        """
+                        INSERT INTO trades (date, ticker, signal, entry_price, volume, capital_at_risk)
+                        VALUES (:date, :ticker, :signal, :entry_price, :volume, :capital_at_risk)
+                        RETURNING id
+                        """
+                    ),
+                    {
+                        "date": date,
+                        "ticker": ticker.upper(),
+                        "signal": signal,
+                        "entry_price": float(entry_price),
+                        "volume": float(volume),
+                        "capital_at_risk": float(capital_at_risk),
+                    },
+                )
+                trade_id = result.scalar_one()
+            else:
+                result = conn.execute(
+                    text(
+                        """
+                        INSERT INTO trades (date, ticker, signal, entry_price, volume, capital_at_risk)
+                        VALUES (:date, :ticker, :signal, :entry_price, :volume, :capital_at_risk)
+                        """
+                    ),
+                    {
+                        "date": date,
+                        "ticker": ticker.upper(),
+                        "signal": signal,
+                        "entry_price": float(entry_price),
+                        "volume": float(volume),
+                        "capital_at_risk": float(capital_at_risk),
+                    },
+                )
+                trade_id = result.lastrowid
+
+            _log_audit(conn, action="trade_saved", trade_id=trade_id, details=f"ticker={ticker.upper()},signal={signal}")
+            return trade_id
+    except Exception:
+        logger.exception("Error saving trade")
         return None
-    
-    finally:
-        conn.close()
+
 
 def load_trades():
-    """Query and return all trades with formatted prices."""
+    """Query and return all trades with raw numeric values."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT * FROM trades ORDER BY date DESC", conn)
-        conn.close()
-        
+        engine = _get_engine()
+        with engine.connect() as conn:
+            df = pd.read_sql_query(text("SELECT * FROM trades ORDER BY date DESC"), conn)
+
         if df.empty:
-            return pd.DataFrame(columns=[
-                'id', 'date', 'ticker', 'signal', 'entry_price', 'volume', 'capital_at_risk'
-            ])
-        
-        # Format price and capital columns for display
-        df['entry_price'] = df['entry_price'].apply(lambda x: f"${x:.2f}")
-        df['capital_at_risk'] = df['capital_at_risk'].apply(lambda x: f"${x:.2f}")
-        
+            return pd.DataFrame(
+                columns=["id", "date", "ticker", "signal", "entry_price", "volume", "capital_at_risk", "created_at"]
+            )
+
         return df
-    
-    except Exception as e:
-        print(f"Error loading trades: {e}")
+    except Exception:
+        logger.exception("Error loading trades")
         return pd.DataFrame()
+
 
 def delete_trade(trade_id):
     """Delete a trade record by ID."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
-        cursor.execute("DELETE FROM trades WHERE id = ?", (trade_id,))
-        conn.commit()
+        engine = _get_engine()
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM trades WHERE id = :trade_id"), {"trade_id": int(trade_id)})
+            _log_audit(conn, action="trade_deleted", trade_id=int(trade_id), details="manual delete")
         return True
-    
-    except Exception as e:
-        print(f"Error deleting trade: {e}")
+    except Exception:
+        logger.exception("Error deleting trade")
         return False
-    
-    finally:
-        conn.close()
+
 
 def get_trade_count():
     """Return the total number of trades in the database."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM trades")
-        count = cursor.fetchone()[0]
-        conn.close()
-        return count
-    
-    except Exception as e:
-        print(f"Error getting trade count: {e}")
+        engine = _get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT COUNT(*) FROM trades"))
+            return int(result.scalar() or 0)
+    except Exception:
+        logger.exception("Error getting trade count")
         return 0
+
 
 def export_trades_csv(filename="trades_export.csv"):
     """Export all trades to a CSV file."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT * FROM trades ORDER BY date DESC", conn)
-        conn.close()
-        
+        df = load_trades()
         output_path = Path(__file__).parent / filename
         df.to_csv(output_path, index=False)
         return str(output_path)
-    
-    except Exception as e:
-        print(f"Error exporting trades: {e}")
+    except Exception:
+        logger.exception("Error exporting trades")
         return None

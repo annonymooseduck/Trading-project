@@ -1,4 +1,5 @@
 import streamlit as st
+import re
 
 st.set_page_config(
     page_title="Trading Assistant - Home",
@@ -39,9 +40,18 @@ with st.sidebar:
         help="Maximum risk percentage per trade"
     )
     
-    st.session_state.ticker = ticker
+    if ticker and not re.fullmatch(r"[A-Za-z0-9.-]{1,10}", ticker.strip()):
+        st.warning("Ticker format looks unusual. Use letters/numbers and optional '.' or '-'.")
+
+    st.session_state.ticker = ticker.strip().upper()
     st.session_state.capital = capital
     st.session_state.max_risk_pct = max_risk_pct
+
+    database_url = st.secrets.get('DATABASE_URL', st.secrets.get('database_url', ''))
+    if database_url:
+        st.caption("Database: managed Postgres configured")
+    else:
+        st.warning("Database fallback active: no DATABASE_URL in secrets. App will use local SQLite.")
     
     st.divider()
     
