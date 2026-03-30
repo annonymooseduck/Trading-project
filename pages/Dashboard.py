@@ -1,10 +1,3 @@
-"""
-Dashboard Page - Main Trading Interface
-
-Real-time analysis with volatility gauge, signal detection, and trade logging.
-This is the core trading interface where users analyze stocks and log trades.
-"""
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,7 +6,6 @@ import requests
 from datetime import datetime, timedelta
 from database import init_db, save_trade, load_trades
 
-# MUST be the first Streamlit command on this page
 st.set_page_config(
     page_title="Trading Dashboard",
     page_icon="📈",
@@ -21,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- HELPER FUNCTIONS ---
 
 @st.cache_data
 def get_market_data(ticker, period="1y", interval="1d"):
@@ -29,14 +20,14 @@ def get_market_data(ticker, period="1y", interval="1d"):
     data = yf.download(ticker, period=period, interval=interval, progress=False)
     data = data.reset_index()
     
-    # Flatten MultiIndex columns if present
+    # Flatten MultiIndex columns if exist otherwise errors
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
     
     # Normalize column names
     data.columns = [str(col).strip().lower() for col in data.columns]
     
-    # Remove duplicates
+    # Remove dupes
     data = data.loc[:, ~data.columns.duplicated(keep='first')]
     
     return data
@@ -56,33 +47,26 @@ def calculate_volatility(df, atr_period=14, ewma_period=20):
     if missing:
         raise ValueError(f"Missing columns: {missing}. Available columns: {list(df.columns)}")
     
-    # 1. Calculate TR (True Range)
-    # True Range accounts for gaps: max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+    # Calculate True Range
     df['h-l'] = df['high'] - df['low']
     df['h-pc'] = abs(df['high'] - df['close'].shift(1))
     df['l-pc'] = abs(df['low'] - df['close'].shift(1))
     df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
 
-    # 2. Calculate ATR (Average True Range)
-    # Rolling average of True Range over 14 days
+    # Calculate Average True Range
     df['atr'] = df['tr'].rolling(window=atr_period).mean()
 
-    # 3. Calculate EWMA (Exponential Weighted Moving Average)
-    # Trend line that weights recent prices more heavily
+    # Calculate EWMA (Exponential Weighted Moving Average)
     df['ewma'] = df['close'].ewm(span=ewma_period, adjust=False).mean()
 
-    # 4. Calculate Bollinger-like Bands
-    # Upper Band = EWMA + (2 × ATR) → Overbought level
-    # Lower Band = EWMA - (2 × ATR) → Oversold level
+    # Calculate Bollinger-like Bands
     df['upper_band'] = df['ewma'] + (2 * df['atr'])
     df['lower_band'] = df['ewma'] - (2 * df['atr'])
 
-    # 5. THE "FALLING KNIFE" FILTER
-    # Calculate 200-day SMA to identify long-term trend direction
+    # Calculate 200-day SMA for falling knife filter
     df['sma_200'] = df['close'].rolling(window=200).mean()
     
-    # Trend_up = True if price is above SMA_200 (safe/uptrend)
-    # This prevents buying stocks in downtrends (falling knives)
+    # Trend up = True if price is above SMA_200 (safe/uptrend)
     df['trend_up'] = (df['close'] > df['sma_200']).fillna(False).astype(bool)
 
     # Cleanup temporary columns
@@ -110,7 +94,6 @@ def calculate_position_size(capital, risk_pct, entry_price, stop_loss):
 def send_telegram_alert(bot_token, chat_id, message):
     """Send a Telegram message via the Bot API."""
     try:
-        # Strip whitespace from credentials
         clean_token = bot_token.strip()
         clean_chat_id = chat_id.strip()
         
@@ -136,7 +119,7 @@ def check_and_alert(ticker, signal, price, bot_token, chat_id):
     current_time = datetime.now()
     last_alert = st.session_state.last_alert_time.get(ticker, None)
     
-    # Send alert only if > 1 hour has passed OR this is the first alert
+    # Send alert only if 1 hour has passed or this is the first alert
     if last_alert is None or (current_time - last_alert) > timedelta(hours=1):
         message = f"🚨 <b>Trading Alert: {ticker}</b>\n\n"
         message += f"Signal: <b>{signal}</b>\n"
@@ -144,27 +127,24 @@ def check_and_alert(ticker, signal, price, bot_token, chat_id):
         message += f"Time: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
         
         if send_telegram_alert(bot_token, chat_id, message):
-            # Update last alert time
             st.session_state.last_alert_time[ticker] = current_time
             return True
     
     return False
 
-# --- PAGE TITLE ---
 st.title("📈 Trading Dashboard")
 st.markdown("Real-time analysis with volatility gauge, signal detection, and trade logging.")
 
-# --- GET SETTINGS FROM SESSION STATE (set by Home.py) ---
-# These are configured in Home.py and shared across all pages
+# Get settings from session state (set by Home.py)
 ticker = st.session_state.get('ticker', 'SPY')
 capital = st.session_state.get('capital', 10000)
 max_risk_pct = st.session_state.get('max_risk_pct', 2.0)
 
-# Telegram bot credentials (set globally in Home.py)
-bot_token = st.session_state.get('bot_token', '')
-chat_id = st.session_state.get('chat_id', '')
+# Telegram bot credentials (read from secrets on Streamlit Cloud, or session state locally)
+bot_token = st.secrets.get('bot_token', st.session_state.get('bot_token', ''))
+chat_id = st.secrets.get('chat_id', st.session_state.get('chat_id', ''))
 
-# Initialize favorites list if not exists
+# Initialize favorites list
 if 'favorites' not in st.session_state:
     st.session_state.favorites = []
 
@@ -178,7 +158,6 @@ with st.sidebar:
         help="Override global ticker setting"
     )
     
-    # Favorite/Unfavorite button
     is_favorite = ticker.upper() in st.session_state.favorites
     favorite_label = "⭐ Unfavorite" if is_favorite else "☆ Favorite"
     
@@ -202,7 +181,6 @@ if not ticker or ticker.strip() == "":
     st.error("⚠️ Please enter a valid ticker symbol in the Home page sidebar!")
     st.stop()
 
-# --- STEP 1: DATA & CALCULATIONS ---
 st.subheader("Data & Calculations")
 
 try:
@@ -217,7 +195,6 @@ try:
     df = calculate_volatility(df)
     
     # Validate we have enough data after calculations
-    # Drop rows with NaN values (from indicator calculations)
     df_valid = df.dropna(subset=['atr', 'ewma', 'sma_200', 'upper_band', 'lower_band'])
     
     if len(df_valid) == 0:
@@ -238,14 +215,11 @@ except Exception as e:
     st.error(f"❌ Error fetching data for '{ticker}': {str(e)}")
     st.stop()
 
-# --- PRICE CHART ---
 st.write("### 📈 Price Chart with Indicators")
 
-# Create candlestick chart with Bollinger-like bands
 fig_chart = go.Figure()
 
 
-# Add Upper Band
 fig_chart.add_trace(go.Scatter(
     x=df['date'],
     y=df['upper_band'],
@@ -255,7 +229,6 @@ fig_chart.add_trace(go.Scatter(
     showlegend=True
 ))
 
-# Add Lower Band with fill
 fig_chart.add_trace(go.Scatter(
     x=df['date'],
     y=df['lower_band'],
@@ -267,7 +240,6 @@ fig_chart.add_trace(go.Scatter(
     showlegend=True
 ))
 
-# Add EWMA (trend line)
 fig_chart.add_trace(go.Scatter(
     x=df['date'],
     y=df['ewma'],
@@ -290,7 +262,7 @@ fig_chart.add_trace(go.Candlestick(
     showlegend=True
 ))
 
-# Update layout with better styling
+# changing layout of chart
 fig_chart.update_layout(
     title=dict(
         text=f"{ticker.upper()} - Price Action & Indicators",
@@ -322,13 +294,12 @@ st.plotly_chart(fig_chart, use_container_width=True)
 with st.expander("📊 View Raw Data (Last 20 days)", expanded=False):
     st.dataframe(df.tail(20), use_container_width=True)
 
-# --- STEP 2: RISK GAUGE (Visualizing Volatility) ---
+# Risk gauge
 st.subheader("Volatility Risk Gauge")
 
 latest_atr = float(df['atr'].iloc[-1])
 latest_close = float(df['close'].iloc[-1])
 
-# Determine volatility level as percentage
 volatility_pct = (latest_atr / latest_close) * 100
 
 fig_gauge = go.Figure(go.Indicator(
@@ -354,11 +325,11 @@ fig_gauge = go.Figure(go.Indicator(
 ))
 st.plotly_chart(fig_gauge, use_container_width=True)
 
-# Edge case warning: Ultra-low volatility
+# Edge case: Ultra-low volatility
 if latest_atr < 0.01:
     st.warning("⚠️ Volatility too low for reliable trading. ATR < $0.01. Position sizing may be unreliable.")
 
-# --- STEP 3: SIGNAL LOGIC (The Core) ---
+# Signal logic
 st.subheader("Trading Signal Detection")
 
 latest_price = float(df['close'].iloc[-1])
@@ -389,7 +360,7 @@ else:
 
 st.metric("Current Signal", signal, delta=None)
 
-# --- STEP 4: ACTION CARD (The Output) ---
+
 st.subheader("Trade Action Card")
 
 if signal in ["BUY", "SELL"]:
@@ -411,7 +382,7 @@ if signal in ["BUY", "SELL"]:
 else:
     st.info("⏸️ No trading signal at this time. Price is within the bands.")
 
-# --- TELEGRAM NOTIFICATIONS ---
+# Telegram alerts
 if bot_token and chat_id and ticker.upper() in st.session_state.favorites:
     if signal in ["BUY", "SELL"]:
         alert_sent = check_and_alert(ticker, signal, latest_price, bot_token, chat_id)
@@ -430,7 +401,7 @@ elif ticker.upper() not in st.session_state.favorites:
 elif not bot_token or not chat_id:
     st.warning("⚠️ Telegram bot not configured. Set up your bot in the Home page sidebar to enable notifications.")
 
-# --- STEP 5: TRADE LOGGING (Persistence) ---
+# Trade History Log
 init_db()
 
 st.subheader("Step 5: Trade History Log")

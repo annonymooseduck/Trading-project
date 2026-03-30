@@ -88,7 +88,7 @@ with st.sidebar:
     
     bot_token = st.text_input(
         "Bot Token",
-        value=st.session_state.get('bot_token', ''),
+        value=st.secrets.get('bot_token', ''),
         type="password",
         key='bot_token_input',
         help="From @BotFather on Telegram"
@@ -96,7 +96,7 @@ with st.sidebar:
     
     chat_id = st.text_input(
         "Chat ID",
-        value=st.session_state.get('chat_id', ''),
+        value=st.secrets.get('chat_id', ''),
         type="password",
         key='chat_id_input',
         help="From @userinfobot on Telegram"
