@@ -1,5 +1,12 @@
 import streamlit as st
 
+
+def get_secret(key, default=""):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
 st.set_page_config(
     page_title="Trading Assistant - Home",
     page_icon="📊",
@@ -88,7 +95,7 @@ with st.sidebar:
     
     bot_token = st.text_input(
         "Bot Token",
-        value=st.secrets.get('bot_token', ''),
+        value=get_secret('bot_token', ''),
         type="password",
         key='bot_token_input',
         help="From @BotFather on Telegram"
@@ -96,7 +103,7 @@ with st.sidebar:
     
     chat_id = st.text_input(
         "Chat ID",
-        value=st.secrets.get('chat_id', ''),
+        value=get_secret('chat_id', ''),
         type="password",
         key='chat_id_input',
         help="From @userinfobot on Telegram"

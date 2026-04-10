@@ -6,6 +6,13 @@ import requests
 from datetime import datetime, timedelta
 from database import init_db, save_trade, load_trades
 
+
+def get_secret(key, default=""):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
 st.set_page_config(
     page_title="Trading Dashboard",
     page_icon="📈",
@@ -141,8 +148,8 @@ capital = st.session_state.get('capital', 10000)
 max_risk_pct = st.session_state.get('max_risk_pct', 2.0)
 
 # Telegram bot credentials (read from secrets on Streamlit Cloud, or session state locally)
-bot_token = st.secrets.get('bot_token', st.session_state.get('bot_token', ''))
-chat_id = st.secrets.get('chat_id', st.session_state.get('chat_id', ''))
+bot_token = get_secret('bot_token', st.session_state.get('bot_token', ''))
+chat_id = get_secret('chat_id', st.session_state.get('chat_id', ''))
 
 # Initialize favorites list
 if 'favorites' not in st.session_state:
