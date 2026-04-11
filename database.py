@@ -55,8 +55,6 @@ def _get_engine():
     logger.info("Using database backend: %s", backend)
     if backend != "Postgres":
         logger.warning("Non-Postgres backend configured. Use Postgres in production for cross-device data access.")
-    if backend == "Postgres":
-        return create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 8})
     return create_engine(db_url, pool_pre_ping=True)
 
 
