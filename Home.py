@@ -2,6 +2,13 @@ import streamlit as st
 import re
 from database import init_db, register_user, authenticate_user
 
+
+def get_secret(key, default=""):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
 st.set_page_config(
     page_title="Trading Assistant - Home",
     page_icon="📊",
@@ -103,7 +110,7 @@ with st.sidebar:
     st.session_state.capital = capital
     st.session_state.max_risk_pct = max_risk_pct
 
-    database_url = st.secrets.get('DATABASE_URL', st.secrets.get('database_url', ''))
+    database_url = get_secret('DATABASE_URL', get_secret('database_url', ''))
     if database_url:
         st.caption("Database: managed Postgres configured")
     else:
@@ -154,7 +161,7 @@ with st.sidebar:
     
     bot_token = st.text_input(
         "Bot Token",
-        value=st.secrets.get('bot_token', ''),
+        value=get_secret('bot_token', ''),
         type="password",
         key='bot_token_input',
         help="From @BotFather on Telegram"
@@ -162,7 +169,7 @@ with st.sidebar:
     
     chat_id = st.text_input(
         "Chat ID",
-        value=st.secrets.get('chat_id', ''),
+        value=get_secret('chat_id', ''),
         type="password",
         key='chat_id_input',
         help="From @userinfobot on Telegram"
