@@ -36,10 +36,10 @@ def init_db():
 
 def save_trade(date, ticker, signal, entry_price, volume, capital_at_risk):
     """Insert a trade record into the database."""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
     try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
         cursor.execute("""
             INSERT INTO trades (date, ticker, signal, entry_price, volume, capital_at_risk)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -54,7 +54,8 @@ def save_trade(date, ticker, signal, entry_price, volume, capital_at_risk):
         return None
     
     finally:
-        conn.close()
+        if 'conn' in locals():
+            conn.close()
 
 def load_trades():
     """Query and return all trades with formatted prices."""
