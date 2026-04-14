@@ -5,6 +5,7 @@ import yfinance as yf
 import requests
 from datetime import datetime, timedelta
 from database import init_db, save_trade, load_trades
+from app_helpers import build_action_card, determine_trade_signal
 from strategy import calculate_volatility, calculate_position_size
 
 
@@ -296,16 +297,8 @@ trend_status = "🟢 UPTREND (Safe)" if trend_up else "🔴 DOWNTREND (Avoid)"
 st.metric("Trend Status (200-day SMA)", trend_status)
 
 # Signal logic with falling knife filter
-if latest_price < lower_band and trend_up:
-    # BUY only if price is below lower band AND in an uptrend
-    signal = "BUY"
-    signal_color = "green"
-elif latest_price > upper_band:
-    signal = "SELL"
-    signal_color = "red"
-else:
-    signal = "NEUTRAL"
-    signal_color = "gray"
+signal = determine_trade_signal(latest_price, lower_band, upper_band, trend_up)
+signal_color = "green" if signal == "BUY" else "red" if signal == "SELL" else "gray"
 
 st.metric("Current Signal", signal, delta=None)
 
@@ -313,24 +306,23 @@ st.metric("Current Signal", signal, delta=None)
 st.subheader("Trade Action Card")
 
 if signal in ["BUY", "SELL"]:
-    price_label = "Entry Price" if signal == "BUY" else "Take Profit / Exit Price"
-    summary_label = "BUY" if signal == "BUY" else "EXIT"
+    action_card = build_action_card(signal, latest_price, latest_atr, capital, max_risk_pct)
 
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        entry_price = latest_price
-        st.metric(price_label, f"${entry_price:.2f}")
+        st.metric(action_card["price_label"], f"${action_card['entry_price']:.2f}")
     
     with col2:
-        risk_level = entry_price - (2 * latest_atr)
-        st.metric("Stop Loss" if signal == "BUY" else "Protective Stop", f"${risk_level:.2f}")
+        st.metric(action_card["risk_label"], f"${action_card['risk_level']:.2f}")
     
     with col3:
-        position_size = calculate_position_size(capital, max_risk_pct, entry_price, risk_level)
-        st.metric("Position Size (Shares)", position_size)
+        st.metric("Position Size (Shares)", action_card["position_size"])
     
-    st.success(f"{summary_label} Signal Active | {price_label}: ${entry_price:.2f} | {('Stop Loss' if signal == 'BUY' else 'Protective Stop')}: ${risk_level:.2f} | Shares: {position_size}")
+    st.success(
+        f"{action_card['summary_label']} Signal Active | {action_card['price_label']}: ${action_card['entry_price']:.2f} | "
+        f"{action_card['risk_label']}: ${action_card['risk_level']:.2f} | Shares: {action_card['position_size']}"
+    )
 else:
     st.info("⏸️ No trading signal at this time. Price is within the bands.")
 

@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from database import load_trades, export_trades_csv, get_trade_count, delete_trade, save_trade
+from app_helpers import calculate_total_capital_at_risk, filter_trades_dataframe, get_missing_import_columns
 
 st.set_page_config(
     page_title="Trade History",
@@ -27,7 +28,7 @@ if not trades_df.empty:
     # Calculate additional metrics
     buy_count = len(trades_df[trades_df['signal'] == 'BUY'])
     sell_count = len(trades_df[trades_df['signal'] == 'SELL'])
-    total_capital_at_risk = trades_df['capital_at_risk'].str.replace('$', '').str.replace(',', '').astype(float).sum()
+    total_capital_at_risk = calculate_total_capital_at_risk(trades_df)
     
     with col2:
         st.metric("BUY Signals", buy_count)
@@ -57,28 +58,7 @@ if not trades_df.empty:
         selected_sort = st.selectbox("Sort By", sort_options)
     
     # Apply filters
-    filtered_df = trades_df.copy()
-    
-    if selected_ticker != 'All':
-        filtered_df = filtered_df[filtered_df['ticker'] == selected_ticker]
-    
-    if selected_signal != 'All':
-        filtered_df = filtered_df[filtered_df['signal'] == selected_signal]
-    
-    # Apply sorting
-    if selected_sort == 'Date (Newest First)':
-        filtered_df = filtered_df.sort_values('date', ascending=False)
-    elif selected_sort == 'Date (Oldest First)':
-        filtered_df = filtered_df.sort_values('date', ascending=True)
-    elif selected_sort == 'Entry Price (High to Low)':
-        # Remove $ and , for sorting
-        filtered_df['_sort_price'] = filtered_df['entry_price'].str.replace('$', '').str.replace(',', '').astype(float)
-        filtered_df = filtered_df.sort_values('_sort_price', ascending=False)
-        filtered_df = filtered_df.drop('_sort_price', axis=1)
-    elif selected_sort == 'Entry Price (Low to High)':
-        filtered_df['_sort_price'] = filtered_df['entry_price'].str.replace('$', '').str.replace(',', '').astype(float)
-        filtered_df = filtered_df.sort_values('_sort_price', ascending=True)
-        filtered_df = filtered_df.drop('_sort_price', axis=1)
+    filtered_df = filter_trades_dataframe(trades_df, selected_ticker, selected_signal, selected_sort)
     
     # --- TRADE HISTORY TABLE ---
     st.subheader("📊 Trade Records")
@@ -140,8 +120,8 @@ if not trades_df.empty:
             import_df = pd.read_csv(uploaded_file)
             
             # Validate required columns
+            missing_cols = get_missing_import_columns(import_df)
             required_cols = ['date', 'ticker', 'signal', 'entry_price', 'volume', 'capital_at_risk']
-            missing_cols = [col for col in required_cols if col not in import_df.columns]
             
             if missing_cols:
                 st.error(f"❌ Missing columns in CSV: {', '.join(missing_cols)}")
