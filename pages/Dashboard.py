@@ -313,21 +313,24 @@ st.metric("Current Signal", signal, delta=None)
 st.subheader("Trade Action Card")
 
 if signal in ["BUY", "SELL"]:
+    price_label = "Entry Price" if signal == "BUY" else "Take Profit / Exit Price"
+    summary_label = "BUY" if signal == "BUY" else "EXIT"
+
     col1, col2, col3 = st.columns(3)
     
     with col1:
         entry_price = latest_price
-        st.metric("Entry Price", f"${entry_price:.2f}")
+        st.metric(price_label, f"${entry_price:.2f}")
     
     with col2:
-        stop_loss = entry_price + (2 * latest_atr) if signal == "SELL" else entry_price - (2 * latest_atr)
-        st.metric("Stop Loss", f"${stop_loss:.2f}")
+        risk_level = entry_price - (2 * latest_atr)
+        st.metric("Stop Loss" if signal == "BUY" else "Protective Stop", f"${risk_level:.2f}")
     
     with col3:
-        position_size = calculate_position_size(capital, max_risk_pct, entry_price, stop_loss)
+        position_size = calculate_position_size(capital, max_risk_pct, entry_price, risk_level)
         st.metric("Position Size (Shares)", position_size)
     
-    st.success(f"{signal} Signal Active | Entry: ${entry_price:.2f} | Stop: ${stop_loss:.2f} | Shares: {position_size}")
+    st.success(f"{summary_label} Signal Active | {price_label}: ${entry_price:.2f} | {('Stop Loss' if signal == 'BUY' else 'Protective Stop')}: ${risk_level:.2f} | Shares: {position_size}")
 else:
     st.info("⏸️ No trading signal at this time. Price is within the bands.")
 
