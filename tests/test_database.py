@@ -69,3 +69,42 @@ def test_save_trade_returns_none_on_db_error(monkeypatch):
     trade_id = database.save_trade("2026-04-13", "SPY", "BUY", 100, 1, 100)
 
     assert trade_id is None
+
+
+def test_save_and_load_settings_roundtrip(isolated_db):
+    ok = database.save_settings(
+        {
+            "ticker": "AAPL",
+            "capital": 25000,
+            "max_risk_pct": 1.5,
+            "bot_token": "demo-token",
+            "chat_id": "123456",
+        }
+    )
+    settings = database.load_settings()
+
+    assert ok is True
+    assert settings["ticker"] == "AAPL"
+    assert settings["capital"] == "25000"
+    assert settings["max_risk_pct"] == "1.5"
+    assert settings["bot_token"] == "demo-token"
+    assert settings["chat_id"] == "123456"
+
+
+def test_save_setting_upserts_value(isolated_db):
+    assert database.save_setting("ticker", "SPY") is True
+    assert database.save_setting("ticker", "MSFT") is True
+
+    settings = database.load_settings()
+
+    assert settings["ticker"] == "MSFT"
+
+
+def test_load_settings_returns_empty_dict_on_db_error(monkeypatch):
+    def raise_connect(*args, **kwargs):
+        raise RuntimeError("db error")
+
+    monkeypatch.setattr(database.sqlite3, "connect", raise_connect)
+    settings = database.load_settings()
+
+    assert settings == {}

@@ -1,4 +1,5 @@
 import streamlit as st
+from database import init_db, load_settings, save_settings
 
 
 def get_secret(key, default=""):
@@ -16,6 +17,34 @@ st.set_page_config(
 
 st.title("Systematic Trading Assistant")
 st.markdown("The Behavioral Firewall for Novice Investors")
+
+
+def _to_int(value, default):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+init_db()
+
+if "settings_initialized" not in st.session_state:
+    persisted_settings = load_settings()
+
+    st.session_state.ticker = persisted_settings.get("ticker", "SPY")
+    st.session_state.capital = _to_int(persisted_settings.get("capital"), 10000)
+    st.session_state.max_risk_pct = _to_float(persisted_settings.get("max_risk_pct"), 2.0)
+    st.session_state.bot_token = persisted_settings.get("bot_token", "")
+    st.session_state.chat_id = persisted_settings.get("chat_id", "")
+
+    st.session_state.settings_initialized = True
 
 with st.sidebar:
     st.header("⚙️ Global Settings")
@@ -95,7 +124,7 @@ with st.sidebar:
     
     bot_token = st.text_input(
         "Bot Token",
-        value=get_secret('bot_token', ''),
+        value=st.session_state.get('bot_token', get_secret('bot_token', '')),
         type="password",
         key='bot_token_input',
         help="From @BotFather on Telegram"
@@ -103,7 +132,7 @@ with st.sidebar:
     
     chat_id = st.text_input(
         "Chat ID",
-        value=get_secret('chat_id', ''),
+        value=st.session_state.get('chat_id', get_secret('chat_id', '')),
         type="password",
         key='chat_id_input',
         help="From @userinfobot on Telegram"
@@ -111,6 +140,18 @@ with st.sidebar:
     
     st.session_state.bot_token = bot_token
     st.session_state.chat_id = chat_id
+
+current_settings = {
+    "ticker": st.session_state.get("ticker", "SPY"),
+    "capital": st.session_state.get("capital", 10000),
+    "max_risk_pct": st.session_state.get("max_risk_pct", 2.0),
+    "bot_token": st.session_state.get("bot_token", ""),
+    "chat_id": st.session_state.get("chat_id", ""),
+}
+
+if st.session_state.get("_persisted_settings") != current_settings:
+    if save_settings(current_settings):
+        st.session_state._persisted_settings = current_settings.copy()
     
     if bot_token and chat_id:
         if st.button("🧪 Test Telegram Connection", key="test_tg_btn"):

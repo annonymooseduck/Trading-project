@@ -13,7 +13,7 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent / "trades.db"
 
 def init_db():
-    """Initialize the SQLite database and trades table."""
+    """Initialize the SQLite database and required tables."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -29,10 +29,92 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     conn.commit()
     conn.close()
     print("✓ Database initialized successfully")
+
+
+def save_setting(key, value):
+    """Upsert a single application setting by key."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (str(key), str(value)),
+        )
+
+        conn.commit()
+        return True
+
+    except Exception as e:
+        print(f"Error saving setting '{key}': {e}")
+        return False
+
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def save_settings(settings):
+    """Upsert multiple settings in a single transaction."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        for key, value in settings.items():
+            cursor.execute(
+                """
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (str(key), str(value)),
+            )
+
+        conn.commit()
+        return True
+
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return False
+
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def load_settings():
+    """Load all persisted settings as a key/value dictionary."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM settings")
+        rows = cursor.fetchall()
+        conn.close()
+        return {key: value for key, value in rows}
+
+    except Exception as e:
+        print(f"Error loading settings: {e}")
+        return {}
 
 def save_trade(date, ticker, signal, entry_price, volume, capital_at_risk):
     """Insert a trade record into the database."""
